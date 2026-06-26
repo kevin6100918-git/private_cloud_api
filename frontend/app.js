@@ -1,5 +1,17 @@
 const API = "/api/files";
+const RAW = "/api/raw";
 const STORAGE_KEY = "showHidden";
+
+const FILE_ICONS = {
+  dir:      "📁",
+  text:     "📝",
+  image:    "🖼️",
+  video:    "🎬",
+  audio:    "🎵",
+  pdf:      "📕",
+  document: "📄",
+  unknown:  "📎",
+};
 
 let currentPath = "";
 let showHidden = localStorage.getItem(STORAGE_KEY) === "true";
@@ -10,18 +22,22 @@ document.addEventListener("DOMContentLoaded", () => {
   toggle.addEventListener("change", () => {
     showHidden = toggle.checked;
     localStorage.setItem(STORAGE_KEY, showHidden);
-    navigate(currentPath, false); // 重新載入同目錄，不推入 history
+    navigate(currentPath, false);
   });
+
+  document.getElementById("btn-media-close").addEventListener("click", closeMediaViewer);
+  document.getElementById("media-overlay").addEventListener("click", closeMediaViewer);
 });
 
 window.addEventListener("popstate", (e) => {
   navigate(e.state?.path ?? "", false);
 });
 
+// ── 目錄導覽 ──────────────────────────────────────────────
+
 async function navigate(path, pushHistory = true) {
   currentPath = path;
   if (pushHistory) {
-    // 根目錄還原成乾淨的 URL，子目錄寫入 hash
     history.pushState({ path }, "", path ? `#${path}` : location.pathname);
   }
   updateTitle(path);
@@ -32,8 +48,8 @@ async function navigate(path, pushHistory = true) {
   renderFileList(data.entries);
 }
 
-function updateTitle(path) {
-  document.title = path ? path.split("/").pop() : "我的硬碟";
+function updateTitle(name) {
+  document.title = name ? name.split("/").pop() : "我的硬碟";
 }
 
 function renderBreadcrumb(path) {
@@ -65,23 +81,26 @@ function renderFileList(entries) {
     return;
   }
   el.innerHTML = entries
-    .map(
-      (entry) =>
-        `<div class="entry ${entry.type}" data-name="${entry.name}">
-          <span class="icon">${entry.type === "dir" ? "📁" : "📄"}</span>
-          <span class="name">${entry.name}</span>
-          ${entry.size != null ? `<span class="size">${formatSize(entry.size)}</span>` : ""}
-          ${entry.type === "file" ? `<button class="btn-delete" data-name="${entry.name}">刪除</button>` : ""}
-        </div>`
-    )
+    .map((entry) => {
+      const icon = entry.type === "dir"
+        ? FILE_ICONS.dir
+        : (FILE_ICONS[entry.file_type] ?? FILE_ICONS.unknown);
+      return `<div class="entry ${entry.type}" data-name="${entry.name}" data-file-type="${entry.file_type ?? ""}">
+        <span class="icon">${icon}</span>
+        <span class="name">${entry.name}</span>
+        ${entry.size != null ? `<span class="size">${formatSize(entry.size)}</span>` : ""}
+        ${entry.type === "file" ? `<button class="btn-delete" data-name="${entry.name}">刪除</button>` : ""}
+      </div>`;
+    })
     .join("");
 
   el.querySelectorAll(".entry").forEach((row) => {
     const name = row.dataset.name;
-    const type = row.classList.contains("dir") ? "dir" : "file";
+    const fileType = row.dataset.fileType;
+    const isDir = row.classList.contains("dir");
     row.querySelector(".name").addEventListener("click", () => {
       const target = currentPath ? `${currentPath}/${name}` : name;
-      type === "dir" ? navigate(target) : openEditor(target);
+      isDir ? navigate(target) : openFile(target, fileType);
     });
   });
 
@@ -97,31 +116,96 @@ function renderFileList(entries) {
   });
 }
 
-async function openEditor(path) {
-  const res = await fetch(`${API}/${path}`);
-  if (!res.ok) return alert("無法讀取檔案");
-  const data = await res.json();
-  document.title = path.split("/").pop();
-  document.getElementById("editor-filename").textContent = path;
-  document.getElementById("editor-content").value = data.content;
-  document.getElementById("editor").hidden = false;
-  document.getElementById("btn-save").onclick = () => saveFile(path);
-  document.getElementById("btn-close").onclick = () => {
-    document.getElementById("editor").hidden = true;
-    updateTitle(currentPath); // 關閉編輯器後還原目錄標題
-  };
+// ── 檔案開啟分流 ──────────────────────────────────────────
+
+function openFile(path, fileType) {
+  switch (fileType) {
+    case "text":
+    case "image":
+    case "video":
+    case "audio":
+    case "pdf":
+      openMediaViewer(path, fileType);
+      break;
+    default:
+      triggerDownload(path);
+  }
 }
 
-async function saveFile(path) {
-  const content = document.getElementById("editor-content").value;
-  const res = await fetch(`${API}/${path}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-  });
-  if (res.ok) alert("儲存成功");
-  else alert("儲存失敗");
+// ── 媒體瀏覽器（含文字編輯器） ───────────────────────────
+
+async function openMediaViewer(path, fileType) {
+  const filename = path.split("/").pop();
+  const rawUrl = `${RAW}/${path}`;
+  const body = document.getElementById("media-body");
+  const saveBtn = document.getElementById("btn-media-save");
+  const dlBtn = document.getElementById("btn-raw-download");
+
+  document.title = filename;
+  document.getElementById("media-filename").textContent = filename;
+  dlBtn.href = rawUrl;
+  dlBtn.download = filename;
+  body.innerHTML = "";
+
+  if (fileType === "text") {
+    body.classList.add("text-mode");
+    saveBtn.hidden = false;
+
+    const res = await fetch(`${API}/${path}`);
+    if (!res.ok) return alert("無法讀取檔案");
+    const data = await res.json();
+
+    const textarea = document.createElement("textarea");
+    textarea.value = data.content;
+    textarea.spellcheck = false;
+    body.appendChild(textarea);
+
+    saveBtn.onclick = async () => {
+      const r = await fetch(`${API}/${path}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: textarea.value }),
+      });
+      if (r.ok) alert("儲存成功");
+      else alert("儲存失敗");
+    };
+  } else {
+    body.classList.remove("text-mode");
+    saveBtn.hidden = true;
+
+    if (fileType === "image") {
+      body.innerHTML = `<img src="${rawUrl}" alt="${filename}" />`;
+    } else if (fileType === "video") {
+      body.innerHTML = `<video controls autoplay><source src="${rawUrl}" /></video>`;
+    } else if (fileType === "audio") {
+      body.innerHTML = `<audio controls autoplay><source src="${rawUrl}" /></audio>`;
+    } else if (fileType === "pdf") {
+      body.innerHTML = `<iframe src="${rawUrl}" title="${filename}"></iframe>`;
+    }
+  }
+
+  document.getElementById("media-viewer").hidden = false;
 }
+
+function closeMediaViewer() {
+  document.getElementById("media-viewer").hidden = true;
+  const body = document.getElementById("media-body");
+  const media = body.querySelector("video, audio");
+  if (media) media.pause();
+  body.innerHTML = "";
+  body.classList.remove("text-mode");
+  document.getElementById("btn-media-save").hidden = true;
+  updateTitle(currentPath);
+}
+
+function triggerDownload(path) {
+  const a = document.createElement("a");
+  a.href = `${RAW}/${path}`;
+  a.download = path.split("/").pop();
+  a.click();
+}
+
+// ── 工具函式 ──────────────────────────────────────────────
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;

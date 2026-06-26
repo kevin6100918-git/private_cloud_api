@@ -18,15 +18,21 @@
   <main>
     <nav id="breadcrumb"></nav>
     <section id="file-list"></section>
-    <section id="editor" hidden>
-      <div id="editor-toolbar">
-        <span id="editor-filename"></span>
-        <button id="btn-save">儲存</button>
-        <button id="btn-close">關閉</button>
-      </div>
-      <textarea id="editor-content"></textarea>
-    </section>
   </main>
+
+  <!-- 媒體瀏覽器（含文字編輯器） -->
+  <div id="media-viewer" hidden>
+    <div id="media-overlay"></div>
+    <div id="media-panel">
+      <div id="media-toolbar">
+        <span id="media-filename"></span>
+        <button id="btn-media-save" hidden>儲存</button>
+        <a id="btn-raw-download">下載</a>
+        <button id="btn-media-close">✕ 關閉</button>
+      </div>
+      <div id="media-body"></div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

@@ -5,6 +5,45 @@ from app.config import BASE_DIR
 _FILE_ATTRIBUTE_HIDDEN = 0x02
 _FILE_ATTRIBUTE_SYSTEM = 0x04
 
+_TEXT_EXTENSIONS = {
+    ".txt", ".md", ".py", ".js", ".mjs", ".ts", ".jsx", ".tsx",
+    ".html", ".htm", ".css", ".json", ".xml", ".yaml", ".yml",
+    ".csv", ".log", ".sh", ".bash", ".zsh", ".bat", ".ps1",
+    ".ini", ".cfg", ".conf", ".toml", ".env", ".gitignore",
+    ".c", ".cpp", ".h", ".hpp", ".java", ".go", ".rs", ".rb",
+    ".php", ".sql", ".r", ".m", ".swift", ".kt", ".scala", ".lua",
+}
+_IMAGE_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif",
+}
+_VIDEO_EXTENSIONS = {
+    ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".3gp",
+}
+_AUDIO_EXTENSIONS = {
+    ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".opus", ".ape",
+}
+_DOCUMENT_EXTENSIONS = {
+    ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+    ".odt", ".ods", ".odp", ".rtf", ".epub",
+}
+
+
+def get_file_type(name: str) -> str:
+    ext = Path(name).suffix.lower()
+    if ext in _TEXT_EXTENSIONS:
+        return "text"
+    if ext in _IMAGE_EXTENSIONS:
+        return "image"
+    if ext in _VIDEO_EXTENSIONS:
+        return "video"
+    if ext in _AUDIO_EXTENSIONS:
+        return "audio"
+    if ext == ".pdf":
+        return "pdf"
+    if ext in _DOCUMENT_EXTENSIONS:
+        return "document"
+    return "unknown"
+
 
 def _is_hidden(path: Path) -> bool:
     """回傳 True 表示該項目應被過濾（系統隱藏檔）。
@@ -35,6 +74,7 @@ def list_dir(path: str, show_hidden: bool = False) -> dict:
         {
             "name": entry.name,
             "type": "dir" if entry.is_dir() else "file",
+            "file_type": None if entry.is_dir() else get_file_type(entry.name),
             "size": entry.stat().st_size if entry.is_file() else None,
         }
         for entry in sorted(target.iterdir(), key=lambda e: (e.is_file(), e.name))
