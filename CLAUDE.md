@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 核心功能：
 - 檔案與目錄的列舉和瀏覽（預設過濾系統隱藏檔，可透過 `?show_hidden=true` 或 UI toggle 切換）
-- 檔案讀寫（新增、修改、刪除）
+- 檔案讀寫（新增、修改、刪除）、multipart 上傳
 - 以 HTTP API 暴露上述操作
 - 內嵌 HTML + JS 前端，由同一個伺服器一併提供
 
@@ -85,3 +85,12 @@ frontend/
 - 根目錄 → `我的硬碟`
 - 子目錄 → 當前資料夾名稱
 - 開啟檔案編輯器 → 檔案名稱；關閉編輯器後還原為所在目錄名稱
+
+## 前端排序
+
+排序在前端完成（不需重新 fetch），`sortEntries()` 負責實作，`lastEntries` 保存最後一次 fetch 的原始資料。
+
+- 可排序欄位：`name`（名稱）、`ctime`（建立時間，後端以 `entry.stat().st_ctime` 回傳）
+- 排序方向：`asc`（升冪）/ `desc`（降冪）
+- 目錄永遠排在檔案前面，兩組分別套用同一排序規則
+- 偏好存入 `localStorage`（key：`sortBy`、`sortOrder`），切換後立即重新渲染不重新請求

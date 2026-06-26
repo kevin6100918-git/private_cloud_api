@@ -15,8 +15,12 @@ const FILE_ICONS = {
 
 let currentPath = "";
 let showHidden = localStorage.getItem(STORAGE_KEY) === "true";
+let sortBy = localStorage.getItem("sortBy") || "name";
+let sortOrder = localStorage.getItem("sortOrder") || "asc";
+let lastEntries = [];
 
 document.addEventListener("DOMContentLoaded", () => {
+  // 顯示隱藏檔案 toggle
   const toggle = document.getElementById("toggle-hidden");
   toggle.checked = showHidden;
   toggle.addEventListener("change", () => {
@@ -25,9 +29,66 @@ document.addEventListener("DOMContentLoaded", () => {
     navigate(currentPath, false);
   });
 
+  // 媒體瀏覽器關閉
   document.getElementById("btn-media-close").addEventListener("click", closeMediaViewer);
   document.getElementById("media-overlay").addEventListener("click", closeMediaViewer);
+
+  // 上傳
+  document.getElementById("btn-upload").addEventListener("click", () => {
+    document.getElementById("upload-input").click();
+  });
+
+  document.getElementById("upload-input").addEventListener("change", async (e) => {
+    const selected = Array.from(e.target.files);
+    if (!selected.length) return;
+
+    const uploadPath = currentPath ? `${API}/${currentPath}` : `${API}/`;
+    const formData = new FormData();
+    selected.forEach((f) => formData.append("files", f));
+
+    const btn = document.getElementById("btn-upload");
+    btn.disabled = true;
+    btn.textContent = "上傳中…";
+
+    try {
+      const res = await fetch(uploadPath, { method: "POST", body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert("上傳失敗：" + (err.detail ?? res.statusText));
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "上傳檔案";
+      e.target.value = "";
+      navigate(currentPath, false);
+    }
+  });
+
+  // 排序
+  const sortByEl = document.getElementById("sort-by");
+  const sortOrderBtn = document.getElementById("sort-order-btn");
+
+  sortByEl.value = sortBy;
+  syncSortOrderBtn();
+
+  sortByEl.addEventListener("change", () => {
+    sortBy = sortByEl.value;
+    localStorage.setItem("sortBy", sortBy);
+    renderFileList(lastEntries);
+  });
+
+  sortOrderBtn.addEventListener("click", () => {
+    sortOrder = sortOrder === "asc" ? "desc" : "asc";
+    localStorage.setItem("sortOrder", sortOrder);
+    syncSortOrderBtn();
+    renderFileList(lastEntries);
+  });
 });
+
+function syncSortOrderBtn() {
+  const btn = document.getElementById("sort-order-btn");
+  btn.textContent = sortOrder === "asc" ? "↑ 升冪" : "↓ 降冪";
+}
 
 window.addEventListener("popstate", (e) => {
   navigate(e.state?.path ?? "", false);
@@ -44,8 +105,9 @@ async function navigate(path, pushHistory = true) {
   const res = await fetch(`${API}/${path}?show_hidden=${showHidden}`);
   if (!res.ok) return alert("無法讀取目錄：" + path);
   const data = await res.json();
+  lastEntries = data.entries;
   renderBreadcrumb(path);
-  renderFileList(data.entries);
+  renderFileList(lastEntries);
 }
 
 function updateTitle(name) {
@@ -54,7 +116,9 @@ function updateTitle(name) {
 
 function renderBreadcrumb(path) {
   const el = document.getElementById("breadcrumb");
-  const parts = path ? path.split("/") : [];
+  const parts = path
+    ? path.split("/").map((p) => { try { return decodeURIComponent(p); } catch { return p; } })
+    : [];
   const items = [{ label: "我的硬碟", path: "" }];
   parts.forEach((part, i) => {
     items.push({ label: part, path: parts.slice(0, i + 1).join("/") });
@@ -74,13 +138,31 @@ function renderBreadcrumb(path) {
   );
 }
 
+// ── 排序 ──────────────────────────────────────────────────
+
+function sortEntries(entries) {
+  const dirs = entries.filter((e) => e.type === "dir");
+  const files = entries.filter((e) => e.type === "file");
+  const cmp = (a, b) => {
+    const va = sortBy === "name" ? a.name.toLowerCase() : (a.ctime ?? 0);
+    const vb = sortBy === "name" ? b.name.toLowerCase() : (b.ctime ?? 0);
+    if (va < vb) return sortOrder === "asc" ? -1 : 1;
+    if (va > vb) return sortOrder === "asc" ? 1 : -1;
+    return 0;
+  };
+  return [...dirs.sort(cmp), ...files.sort(cmp)];
+}
+
+// ── 檔案列表 ──────────────────────────────────────────────
+
 function renderFileList(entries) {
   const el = document.getElementById("file-list");
-  if (!entries.length) {
+  const sorted = sortEntries(entries);
+  if (!sorted.length) {
     el.innerHTML = "<p>（空目錄）</p>";
     return;
   }
-  el.innerHTML = entries
+  el.innerHTML = sorted
     .map((entry) => {
       const icon = entry.type === "dir"
         ? FILE_ICONS.dir
@@ -214,6 +296,79 @@ function formatSize(bytes) {
 }
 
 // 初始化：讀取 URL hash 還原瀏覽位置
-const initialPath = location.hash ? location.hash.slice(1) : "";
+const initialPath = location.hash ? decodeURIComponent(location.hash.slice(1)) : "";
 history.replaceState({ path: initialPath }, "");
 navigate(initialPath, false);
+
+// ── 背景粒子網格動畫 ──────────────────────────────────────
+
+(function bgAnimation() {
+  const canvas = document.getElementById("bg-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+
+  const ACCENT_RGB = "0, 212, 255";
+  const NODE_COUNT = 70;
+  const MAX_DIST = 150;
+
+  let W, H, nodes;
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    nodes = Array.from({ length: NODE_COUNT }, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.28,
+      vy: (Math.random() - 0.5) * 0.28,
+      r: Math.random() * 1.4 + 0.4,
+    }));
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // 移動節點
+    nodes.forEach((n) => {
+      n.x += n.vx;
+      n.y += n.vy;
+      if (n.x < 0 || n.x > W) n.vx *= -1;
+      if (n.y < 0 || n.y > H) n.vy *= -1;
+    });
+
+    // 繪製連線
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const dx = nodes[i].x - nodes[j].x;
+        const dy = nodes[i].y - nodes[j].y;
+        const d = Math.hypot(dx, dy);
+        if (d < MAX_DIST) {
+          const alpha = (1 - d / MAX_DIST) * 0.22;
+          ctx.strokeStyle = `rgba(${ACCENT_RGB}, ${alpha})`;
+          ctx.lineWidth = 0.6;
+          ctx.beginPath();
+          ctx.moveTo(nodes[i].x, nodes[i].y);
+          ctx.lineTo(nodes[j].x, nodes[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 繪製節點
+    nodes.forEach((n) => {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${ACCENT_RGB}, 0.75)`;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = `rgba(${ACCENT_RGB}, 0.9)`;
+      ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener("resize", resize);
+  resize();
+  draw();
+})();

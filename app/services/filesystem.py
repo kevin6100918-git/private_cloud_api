@@ -76,6 +76,8 @@ def list_dir(path: str, show_hidden: bool = False) -> dict:
             "type": "dir" if entry.is_dir() else "file",
             "file_type": None if entry.is_dir() else get_file_type(entry.name),
             "size": entry.stat().st_size if entry.is_file() else None,
+            "ctime": entry.stat().st_ctime,
+            "updated": entry.stat().st_mtime,
         }
         for entry in sorted(target.iterdir(), key=lambda e: (e.is_file(), e.name))
         if show_hidden or not _is_hidden(entry)

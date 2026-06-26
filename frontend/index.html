@@ -4,9 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Private Cloud</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <!-- 背景粒子動畫 -->
+  <canvas id="bg-canvas"></canvas>
+
   <header>
     <h1>Private Cloud</h1>
     <label id="toggle-hidden-label">
@@ -17,6 +23,17 @@
 
   <main>
     <nav id="breadcrumb"></nav>
+    <div id="file-toolbar">
+      <button id="btn-upload">上傳檔案</button>
+      <input type="file" id="upload-input" multiple hidden />
+      <div id="sort-controls">
+        <select id="sort-by">
+          <option value="name">名稱</option>
+          <option value="ctime">建立時間</option>
+        </select>
+        <button id="sort-order-btn" title="切換排序方向"></button>
+      </div>
+    </div>
     <section id="file-list"></section>
   </main>
 

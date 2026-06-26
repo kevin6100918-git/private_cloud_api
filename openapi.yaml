@@ -1,0 +1,639 @@
+openapi: "3.1.0"
+
+info:
+  title: Private Cloud API
+  version: "1.0.0"
+  description: |
+    透過 HTTP 瀏覽並管理本機檔案系統的私有雲端服務。
+    前後端由同一個 FastAPI 伺服器提供，以路徑前綴區分：
+    - **前端**：`/`、`/static/*` — 提供瀏覽器操作介面（HTML / CSS / JS）
+    - **Files API**：`/api/files/*` — 目錄與檔案 CRUD
+    - **Raw API**：`/api/raw/*` — 原始檔案串流（媒體播放、PDF 檢視、下載）
+
+    ### 安全限制
+    所有路徑都會被限制在伺服器端設定的 `BASE_DIR` 範圍內（預設為使用者家目錄）。
+    試圖跳脫邊界（path traversal）的請求將收到 `403 Forbidden`。
+
+servers:
+  - url: http://localhost:8000
+    description: 本機開發伺服器（uvicorn）
+
+tags:
+  - name: frontend
+    description: 前端靜態資源，由瀏覽器直接存取
+  - name: files
+    description: 檔案與目錄 CRUD — 列舉、讀寫、刪除、上傳
+  - name: raw
+    description: 原始檔案串流，供媒體播放器、PDF 檢視器或直接下載使用
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paths
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ── 前端 ──────────────────────────────────────────────────────────────────
+
+  /:
+    get:
+      tags: [frontend]
+      summary: 瀏覽器 UI 首頁
+      description: 回傳 `frontend/index.html`，即 SPA 單頁應用的進入點。
+      responses:
+        "200":
+          description: HTML 頁面
+          content:
+            text/html:
+              example: "<!DOCTYPE html><html lang=\"zh-TW\">…</html>"
+
+  /static/{filename}:
+    get:
+      tags: [frontend]
+      summary: 前端靜態資源
+      description: 提供 CSS、JS 等靜態檔案（由 FastAPI `StaticFiles` 掛載在 `/static`）。
+      parameters:
+        - $ref: "#/components/parameters/StaticFilename"
+      responses:
+        "200":
+          description: 靜態檔案內容
+          content:
+            text/css:
+              example: "/* sci-fi dark theme */"
+            application/javascript:
+              example: "const API = '/api/files';"
+        "404":
+          description: 檔案不存在
+
+  # ── Files API ──────────────────────────────────────────────────────────────
+
+  /api/files/:
+    get:
+      tags: [files]
+      summary: 列出根目錄
+      description: 列出 `BASE_DIR` 下的所有項目（含子目錄與檔案）。
+      parameters:
+        - $ref: "#/components/parameters/ShowHidden"
+      responses:
+        "200":
+          description: 根目錄內容
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirListing"
+              examples:
+                root_listing:
+                  summary: 典型根目錄
+                  value:
+                    path: ""
+                    entries:
+                      - name: "Documents"
+                        type: "dir"
+                        file_type: null
+                        size: null
+                        ctime: 1748736000.0
+                        updated: 1748995200.0
+                      - name: "Downloads"
+                        type: "dir"
+                        file_type: null
+                        size: null
+                        ctime: 1748649600.0
+                        updated: 1748908800.0
+                      - name: "readme.md"
+                        type: "file"
+                        file_type: "text"
+                        size: 2048
+                        ctime: 1748822400.0
+                        updated: 1748822400.0
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [files]
+      summary: 上傳檔案至根目錄
+      description: 以 `multipart/form-data` 一次上傳一或多個檔案至 `BASE_DIR`。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadRequest"
+            encoding:
+              files:
+                contentType: application/octet-stream
+      responses:
+        "200":
+          description: 上傳成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+              example:
+                uploaded:
+                  - name: "photo.jpg"
+                    path: "photo.jpg"
+                  - name: "notes.txt"
+                    path: "notes.txt"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/files/{path}:
+    get:
+      tags: [files]
+      summary: 讀取目錄或檔案
+      description: |
+        - 若 `path` 指向**目錄**：回傳該目錄下的項目清單（同根目錄格式）。
+        - 若 `path` 指向**文字檔**：回傳 UTF-8 編碼的檔案內容。
+        - 二進位檔案（影片、圖片等）請改用 `/api/raw/{path}` 取得原始位元組。
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+        - $ref: "#/components/parameters/ShowHidden"
+      responses:
+        "200":
+          description: 目錄清單或文字檔內容
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/DirListing"
+                  - $ref: "#/components/schemas/FileContent"
+              examples:
+                dir_listing:
+                  summary: 目錄清單（Documents/）
+                  value:
+                    path: "Documents"
+                    entries:
+                      - name: "動畫"
+                        type: "dir"
+                        file_type: null
+                        size: null
+                        ctime: 1748736000.0
+                        updated: 1748995200.0
+                      - name: "report.pdf"
+                        type: "file"
+                        file_type: "pdf"
+                        size: 524288
+                        ctime: 1748822400.0
+                        updated: 1748822400.0
+                      - name: "notes.txt"
+                        type: "file"
+                        file_type: "text"
+                        size: 1024
+                        ctime: 1748908800.0
+                        updated: 1748995200.0
+                file_content:
+                  summary: 文字檔內容（Documents/notes.txt）
+                  value:
+                    path: "Documents/notes.txt"
+                    content: "# 會議記錄\n\n2026-06-26 討論事項…"
+                show_hidden_example:
+                  summary: 啟用顯示隱藏檔案（?show_hidden=true）
+                  value:
+                    path: ""
+                    entries:
+                      - name: ".env"
+                        type: "file"
+                        file_type: "text"
+                        size: 32
+                        ctime: 1748649600.0
+                        updated: 1748649600.0
+                      - name: "Documents"
+                        type: "dir"
+                        file_type: null
+                        size: null
+                        ctime: 1748736000.0
+                        updated: 1748995200.0
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [files]
+      summary: 上傳檔案至指定目錄
+      description: 以 `multipart/form-data` 一次上傳一或多個檔案至 `path` 指定的目錄。
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadRequest"
+            encoding:
+              files:
+                contentType: application/octet-stream
+      responses:
+        "200":
+          description: 上傳成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+              example:
+                uploaded:
+                  - name: "vacation.mp4"
+                    path: "Documents/動畫/vacation.mp4"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    put:
+      tags: [files]
+      summary: 建立或覆寫文字檔
+      description: |
+        以 JSON body 的 `content` 欄位覆寫（或新建）指定路徑的文字檔。
+        父目錄不存在時會自動建立。內容以 UTF-8 寫入。
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WriteBody"
+            examples:
+              write_markdown:
+                summary: 寫入 Markdown 文件
+                value:
+                  content: "# 標題\n\n內文段落。"
+              write_config:
+                summary: 寫入設定檔
+                value:
+                  content: "BASE_DIR=G:\\\n"
+      responses:
+        "200":
+          description: 寫入成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriteResult"
+              example:
+                message: "ok"
+                path: "Documents/notes.txt"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [files]
+      summary: 刪除檔案或空目錄
+      description: |
+        刪除指定路徑的檔案，或刪除**空**目錄。
+        非空目錄不會被刪除（會回傳 500）。
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: 刪除成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriteResult"
+              example:
+                message: "ok"
+                path: "Documents/old-notes.txt"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── Raw API ────────────────────────────────────────────────────────────────
+
+  /api/raw/{path}:
+    get:
+      tags: [raw]
+      summary: 串流提供原始檔案
+      description: |
+        直接串流回傳檔案的原始位元組，MIME type 由副檔名自動推斷。
+        無法辨識的類型回傳 `application/octet-stream`（觸發瀏覽器下載）。
+
+        支援 `Range` 請求（由 FastAPI `FileResponse` 提供），
+        適合影片播放器的分段載入（HTTP 206 Partial Content）。
+
+        | 用途 | 範例路徑 |
+        |------|----------|
+        | 圖片顯示 | `/api/raw/Pictures/photo.jpg` |
+        | 影片播放 | `/api/raw/Videos/movie.mp4` |
+        | 音樂播放 | `/api/raw/Music/song.mp3` |
+        | PDF 檢視 | `/api/raw/Documents/report.pdf` |
+        | 一般下載 | `/api/raw/Documents/archive.zip` |
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+        - name: Range
+          in: header
+          required: false
+          description: 請求部分內容範圍（用於影片分段載入）
+          schema:
+            type: string
+          example: "bytes=0-1048575"
+      responses:
+        "200":
+          description: 完整檔案內容
+          content:
+            image/jpeg:
+              example: "<binary JPEG data>"
+            image/png:
+              example: "<binary PNG data>"
+            video/mp4:
+              example: "<binary MP4 data>"
+            audio/mpeg:
+              example: "<binary MP3 data>"
+            application/pdf:
+              example: "<binary PDF data>"
+            application/octet-stream:
+              example: "<binary data>"
+        "206":
+          description: 部分檔案內容（Range 請求）
+          content:
+            video/mp4:
+              example: "<partial binary MP4 data>"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Components
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+
+  # ── Parameters ──────────────────────────────────────────────────────────────
+  parameters:
+
+    FilePath:
+      name: path
+      in: path
+      required: true
+      description: |
+        相對於 `BASE_DIR` 的路徑，以 `/` 分隔層級。
+        不可包含 `..` 或跳脫 `BASE_DIR` 邊界的序列。
+      schema:
+        type: string
+      examples:
+        dir:
+          summary: 目錄
+          value: "Documents/動畫"
+        text_file:
+          summary: 文字檔
+          value: "Documents/notes.txt"
+        media_file:
+          summary: 媒體檔
+          value: "Pictures/vacation.jpg"
+
+    ShowHidden:
+      name: show_hidden
+      in: query
+      required: false
+      description: |
+        是否顯示隱藏檔案與系統檔案。
+        - Windows：具有 `HIDDEN` 或 `SYSTEM` 屬性的項目
+        - 其他平台：`.` 開頭的項目
+      schema:
+        type: boolean
+        default: false
+      example: false
+
+    StaticFilename:
+      name: filename
+      in: path
+      required: true
+      description: 靜態檔案名稱
+      schema:
+        type: string
+      examples:
+        css:
+          value: "style.css"
+        js:
+          value: "app.js"
+
+  # ── Schemas ──────────────────────────────────────────────────────────────────
+  schemas:
+
+    DirEntry:
+      type: object
+      required: [name, type, file_type, size, ctime]
+      description: 目錄中的單一項目（檔案或子目錄）
+      properties:
+        name:
+          type: string
+          description: 項目名稱（不含路徑）
+          example: "vacation.mp4"
+        type:
+          type: string
+          enum: [dir, file]
+          description: "`dir` 為目錄，`file` 為檔案"
+          example: "file"
+        file_type:
+          type: ["string", "null"]
+          enum: [text, image, video, audio, pdf, document, unknown, null]
+          description: |
+            由副檔名推斷的檔案類型。目錄為 `null`。
+            - `text`：純文字、程式碼、設定檔
+            - `image`：jpg / png / gif / webp / svg 等
+            - `video`：mp4 / mkv / avi / mov 等
+            - `audio`：mp3 / flac / wav / ogg 等
+            - `pdf`：PDF 文件
+            - `document`：docx / xlsx / pptx / epub 等
+            - `unknown`：其他無法辨識的副檔名
+          example: "video"
+        size:
+          type: ["integer", "null"]
+          description: 檔案大小（bytes）；目錄為 `null`
+          example: 104857600
+        ctime:
+          type: ["number", "null"]
+          format: double
+          description: 建立時間（Unix timestamp，秒）
+          example: 1748736000.0
+        updated:
+          type: number
+          format: double
+          description: 最後修改時間（Unix timestamp，秒）
+          example: 1748995200.0
+      example:
+        name: "vacation.mp4"
+        type: "file"
+        file_type: "video"
+        size: 104857600
+        ctime: 1748736000.0
+        updated: 1748995200.0
+
+    DirListing:
+      type: object
+      required: [path, entries]
+      description: 目錄清單回應
+      properties:
+        path:
+          type: string
+          description: 相對於 BASE_DIR 的路徑；根目錄為空字串
+          example: "Documents"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/DirEntry"
+      example:
+        path: "Documents"
+        entries:
+          - name: "動畫"
+            type: "dir"
+            file_type: null
+            size: null
+            ctime: 1748736000.0
+            updated: 1748995200.0
+          - name: "report.pdf"
+            type: "file"
+            file_type: "pdf"
+            size: 524288
+            ctime: 1748822400.0
+            updated: 1748822400.0
+          - name: "notes.txt"
+            type: "file"
+            file_type: "text"
+            size: 1024
+            ctime: 1748908800.0
+            updated: 1748995200.0
+
+    FileContent:
+      type: object
+      required: [path, content]
+      description: 文字檔內容回應
+      properties:
+        path:
+          type: string
+          description: 相對於 BASE_DIR 的檔案路徑
+          example: "Documents/notes.txt"
+        content:
+          type: string
+          description: UTF-8 編碼的檔案內容
+          example: "# 會議記錄\n\n2026-06-26 討論事項…"
+      example:
+        path: "Documents/notes.txt"
+        content: "# 會議記錄\n\n2026-06-26 討論事項…"
+
+    WriteBody:
+      type: object
+      required: [content]
+      description: 寫入文字檔的請求 body
+      properties:
+        content:
+          type: string
+          description: 要寫入的 UTF-8 文字內容
+          example: "# 標題\n\n內文段落。"
+
+    WriteResult:
+      type: object
+      required: [message, path]
+      properties:
+        message:
+          type: string
+          example: "ok"
+        path:
+          type: string
+          description: 操作的相對路徑
+          example: "Documents/notes.txt"
+
+    UploadRequest:
+      type: object
+      required: [files]
+      description: 多檔案上傳請求（multipart/form-data）
+      properties:
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+          description: 一或多個檔案，欄位名稱皆為 `files`
+
+    UploadResult:
+      type: object
+      required: [uploaded]
+      description: 上傳成功回應
+      properties:
+        uploaded:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadedFile"
+      example:
+        uploaded:
+          - name: "photo.jpg"
+            path: "Pictures/photo.jpg"
+
+    UploadedFile:
+      type: object
+      required: [name, path]
+      properties:
+        name:
+          type: string
+          description: 經過 sanitize 的檔案名稱（僅保留最後一段，移除路徑）
+          example: "photo.jpg"
+        path:
+          type: string
+          description: 存放後相對於 BASE_DIR 的完整路徑
+          example: "Pictures/photo.jpg"
+
+    ErrorDetail:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          description: 錯誤說明
+
+  # ── Responses ────────────────────────────────────────────────────────────────
+  responses:
+
+    BadRequest:
+      description: 請求格式錯誤（例如目標路徑不是目錄）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+          example:
+            detail: "目標路徑不是目錄"
+
+    Forbidden:
+      description: 路徑超出 BASE_DIR 範圍（路徑穿越攻擊防護）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+          example:
+            detail: "不允許存取 BASE_DIR 以外的路徑"
+
+    NotFound:
+      description: 路徑不存在或不是預期的類型
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+          examples:
+            file_not_found:
+              summary: 檔案不存在
+              value:
+                detail: "Documents/missing.txt 不存在或不是檔案"
+            not_a_file:
+              summary: 路徑不是檔案
+              value:
+                detail: "不是檔案"
+
+    InternalError:
+      description: 伺服器內部錯誤
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+          example:
+            detail: "WinError 5 拒絕存取"
