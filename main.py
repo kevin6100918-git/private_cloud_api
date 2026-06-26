@@ -1,0 +1,16 @@
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.routers import files
+
+app = FastAPI(title="Private Cloud API")
+
+app.include_router(files.router, prefix="/api")
+
+app.mount("/static", StaticFiles(directory="frontend"), name="frontend")
+
+
+@app.get("/")
+async def index():
+    return FileResponse("frontend/index.html")

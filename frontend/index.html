@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Private Cloud</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Private Cloud</h1>
+    <label id="toggle-hidden-label">
+      <input type="checkbox" id="toggle-hidden" />
+      顯示隱藏檔案
+    </label>
+  </header>
+
+  <main>
+    <nav id="breadcrumb"></nav>
+    <section id="file-list"></section>
+    <section id="editor" hidden>
+      <div id="editor-toolbar">
+        <span id="editor-filename"></span>
+        <button id="btn-save">儲存</button>
+        <button id="btn-close">關閉</button>
+      </div>
+      <textarea id="editor-content"></textarea>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
