@@ -41,7 +41,7 @@ python -m venv .venv
 pip install -r requirements.txt
 
 # 啟動開發伺服器（支援熱重載）
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 ```
 
 伺服器啟動後：
@@ -51,20 +51,20 @@ uvicorn main:app --reload
 ## 目錄結構
 
 ```
-main.py                  # FastAPI app 進入點
 requirements.txt
 .env                     # BASE_DIR 設定（不進版控）
 .env.example             # .env 範本
 app/
+  main.py                # FastAPI app 進入點
   config.py              # 載入 .env，匯出 BASE_DIR
   routers/
     files.py             # /api/files 路由（CRUD）
   services/
     filesystem.py        # 檔案系統操作邏輯與隱藏檔過濾
-frontend/
-  index.html
-  app.js
-  style.css
+  frontend/
+    index.html
+    app.js
+    style.css
 ```
 
 ## 設定
